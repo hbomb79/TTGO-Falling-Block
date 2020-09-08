@@ -4,15 +4,24 @@
  * All code is the work of Harry Felton (Massey Student ID: 18032692), unless otherwise stated.
  * 
  */
-#include <stdio.h>
+#include <driver/adc.h>
 #include <driver/gpio.h>
-#include <driver/timer.h>
-#include <esp_types.h>
+#include <esp_adc_cal.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/event_groups.h>
 #include <freertos/task.h>
-#include <freertos/queue.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <math.h>
+#include <esp_log.h>
+#include <esp_sntp.h>
 
 #include "main.h"
+#include "fonts.h"
+#include "graphics.h"
 
 #define TARGET_FPS 30
 #define MAX_BLOCKS 15
@@ -64,46 +73,53 @@ static void start_game() {
     // including the players score, movement and what state of the game
     // we're in (menu, game, game over, etc)
     game_state state = {
-        .phase = MENU,
+        .phase = PHASE_MENU,
         .score = 0,
         .time_passed = 0,
-        .player_direction = NONE,
+        .player_direction = DIR_NONE,
         .selection = 0
     };
 
+    int frame = 0;
     game_update packet;
+    int64_t start_time = esp_timer_get_time();
     // Start the game loop. This will run until the player quits the game.
     while(1) {
         // Keep iterating until we find a packet inside our queue.
         // This is used so that the high-priority callbacks/ISR functions are free as soon as is possible.
-        if(xQueueReceive(&packet_queue, &packet, 0) == pdTRUE) {
-            if(packet.type == TICK) {
+        if(xQueueReceive(packet_queue, &packet, 10) == pdTRUE) {
+            printf("Frame: %d - ", frame);
+            printf("Packet type: %d - ", packet.type);
+            printf("Packet data: %d \n\n", packet.data);
+            if(packet.type == PACKET_TICK) {
                 // We received a TICK packet, this means that the game should recalculate logic
                 // and redraw. The ticks should happen according to the frames per second (FPS)
                 // defined at the top of the file.
+                printf("Advancing frame from %d\n", frame);
+                frame++;
                 update(packet.data, &state);
-            } else if(packet.type == INPUT) {
+                double fps = frame / (( esp_timer_get_time() - start_time ) / 1.0e6);
+                printf("FPS: %f\n", fps);
+                
+            } else if(packet.type == PACKET_INPUT) {
                 // We received an INPUT packet, meaning we've recieved input from the user.
                 // Depending on the phase of the game, this either means we're:
                 // - Changing direction (when phase is GAME)
                 // - Continuing from the death screen (when phase is DEATH)
                 // - Changing the state->selection (when phase is MENU), OR selecting the current selection
-                state.player_direction = packet.data;
+                // state.player_direction = packet.data;
+                printf("DIRECTION CHANGE!");
             }
         }
+
+        // Prevent watchdog from terminating due to failure to yield
+        vTaskDelay(1);
     }
+
+    // vTaskDelete(NULL);
 }
 
 static void update(double dt, game_state* state) {
-    // TODO
-};
-static void checkCollisions(game_state* state) {
-    // TODO
-};
-static void checkState(game_state* state) {
-    // TODO
-};
-static void render(game_state* state) {
     // TODO
 };
 
@@ -147,15 +163,15 @@ static void gpio_button_isr_handler(void* gpio_arg) {
 
     // Time since last change must be more than 500us to continue (debounce)
     if(current_time - last_press_time > 500) {
-        game_update packet = {.type = INPUT};
+        game_update packet = {.type = PACKET_INPUT};
         if(isPressed) {
             // The button attached to this GPIO pin was just pressed down
             // Set the direction of movement to the direction this button correlates with
-            packet.data = gpio_pin == 35 ? RIGHT : LEFT;
+            packet.data = gpio_pin == 35 ? DIR_RIGHT : DIR_LEFT;
         } else {
             // The button attached to this GPIO pin was just released
             // Set direction of movement back to NONE
-            packet.data = NONE;
+            packet.data = DIR_NONE;
         }
 
         xQueueSendFromISR(packet_queue, &packet, 0);
@@ -188,7 +204,7 @@ static void game_tick_timer_callback() {
 
     // Create our game_update packet
     const game_update update = {
-        .type = TICK,
+        .type = PACKET_TICK,
         .data = dt
     };
 
@@ -213,5 +229,5 @@ static void configure_hw_timer() {
     esp_timer_create(&game_tick_args, &game_timer);
 
     // Start the timer to run at 30 ticks per second (second / target runs per second) converted to microseconds
-    esp_timer_start_periodic(game_timer, (1/TARGET_FPS)*1.0e6);
+    esp_timer_start_periodic(game_timer, 1.0e6/TARGET_FPS);
 }
