@@ -12,8 +12,14 @@
 #include <freertos/task.h>
 #include <freertos/queue.h>
 
+#include "main.h"
+
 #define TARGET_FPS 30
 #define MAX_BLOCKS 15
+
+// Velocity is measured per second. The `dt` provided to the game logic will be used
+// to ensure smooth movement even if frames are skipped.
+// This also means that even if the FPS above is adjusted, the game will play at the same speed.
 #define STARTING_VELOCITY 2
 #define MAX_VELOCITY 10
 
@@ -23,22 +29,6 @@ QueueHandle_t packet_queue;
 
 // The ESP timer we're using to drive the game loop
 esp_timer_handle_t game_timer;
-
-typedef enum game_update_type {TICK, INPUT} game_update_type;
-typedef struct game_update {
-    game_update_type type;
-    int data;
-} game_update;
-
-typedef enum game_state_phase {MENU, DEATH, GAME} game_state_phase;
-typedef enum game_state_direction {LEFT, RIGHT, NONE} game_state_direction;
-typedef struct game_state {
-    game_state_phase phase;
-    int score;
-    int time_passed;
-    game_state_direction player_direction;
-    int selection;
-} game_state;
 
 
 /*
@@ -77,7 +67,8 @@ static void start_game() {
         .phase = MENU,
         .score = 0,
         .time_passed = 0,
-        .player_direction = NONE
+        .player_direction = NONE,
+        .selection = 0
     };
 
     game_update packet;
@@ -103,10 +94,18 @@ static void start_game() {
     }
 }
 
-static void update(double dt, game_state* state) {};
-static void checkCollisions(game_state* state) {};
-static void checkState(game_state* state) {};
-static void render(game_state* state) {};
+static void update(double dt, game_state* state) {
+    // TODO
+};
+static void checkCollisions(game_state* state) {
+    // TODO
+};
+static void checkState(game_state* state) {
+    // TODO
+};
+static void render(game_state* state) {
+    // TODO
+};
 
 /*
  * Called during initialisation to configure GPIO (general purpose input/output) pins to the correct
@@ -121,8 +120,8 @@ static void configure_gpio() {
     gpio_install_isr_service(ESP_INTR_FLAG_LEVEL1);
 
     // And attach the handler to the service
-    gpio_isr_handler_add(GPIO_NUM_0, gpio_button_isr_handler, GPIO_NUM_0);
-    gpio_isr_handler_add(GPIO_NUM_35, gpio_button_isr_handler, GPIO_NUM_35);
+    gpio_isr_handler_add(GPIO_NUM_0, gpio_button_isr_handler, (void*)GPIO_NUM_0);
+    gpio_isr_handler_add(GPIO_NUM_35, gpio_button_isr_handler, (void*)GPIO_NUM_35);
 }
 
 /*
@@ -169,7 +168,7 @@ static void gpio_button_isr_handler(void* gpio_arg) {
     last_press_time = current_time;
 }
 
-/*
+/**
  * Runs every tick of the game. Use this oppourtunity to calculate the delta time, and then
  * queue this information in the `packet_queue` for handling by our game.
  * 
