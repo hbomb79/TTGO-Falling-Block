@@ -13,22 +13,33 @@
 #include <freertos/queue.h>
 
 #define TARGET_FPS 30
+#define MAX_BLOCKS 15
+#define STARTING_VELOCITY 2
+#define MAX_VELOCITY 10
 
-// The tick_queue stores any updates we're dispatching to the game loop
+// The packet_queue stores any updates we're dispatching to the game loop
 // from outside the loop (a timer callback or GPIO interrupt)
-QueueHandle_t tick_queue;
+QueueHandle_t packet_queue;
+
+// The ESP timer we're using to drive the game loop
 esp_timer_handle_t game_timer;
 
-typedef enum {TICK, INPUT} game_update_type;
+typedef enum game_update_type {TICK, INPUT} game_update_type;
 typedef struct game_update {
     game_update_type type;
     int data;
 } game_update;
 
+typedef enum game_state_phase {MENU, DEATH, GAME} game_state_phase;
+typedef enum game_state_direction {LEFT, RIGHT, NONE} game_state_direction;
 typedef struct game_state {
+    game_state_phase phase;
     int score;
     int time_passed;
+    game_state_direction player_direction;
+    int selection;
 } game_state;
+
 
 /*
  * The entry point in to this game; Here we need to configure our GPIO pins, setup
@@ -40,7 +51,7 @@ void app_main() {
     // doing all logic inside of high-priority callback functions from the esp_timer.
     // The data passed will be our dT (delta time), which is the amount of time that has
     // passed since the last update tick was dispatched.
-    tick_queue = xQueueCreate(10, sizeof(game_update));
+    packet_queue = xQueueCreate(10, sizeof(game_update));
 
     // Configure the direction and interrupts of our GPIO pins
     configure_gpio();
@@ -53,38 +64,114 @@ void app_main() {
 
 /*
  * This is the main point of the game-loop. It continues to run inifitely, polling for interrupts and
- * timer callbacks present in the tick_queue.
+ * timer callbacks present in the packet_queue.
  * 
- * Each time an event is found inside the tick_queue, it's dispatched to the `game_tick` function, which
+ * Each time an event is found inside the packet_queue, it's dispatched to the `game_tick` function, which
  * will handle the update, collisions, scoring and redrawing of the game.
  */
 static void start_game() {
+    // This state struct contains the current state of the game,
+    // including the players score, movement and what state of the game
+    // we're in (menu, game, game over, etc)
     game_state state = {
+        .phase = MENU,
         .score = 0,
-        .time_passed = 0
+        .time_passed = 0,
+        .player_direction = NONE
     };
 
+    game_update packet;
+    // Start the game loop. This will run until the player quits the game.
     while(1) {
-        
+        // Keep iterating until we find a packet inside our queue.
+        // This is used so that the high-priority callbacks/ISR functions are free as soon as is possible.
+        if(xQueueReceive(&packet_queue, &packet, 0) == pdTRUE) {
+            if(packet.type == TICK) {
+                // We received a TICK packet, this means that the game should recalculate logic
+                // and redraw. The ticks should happen according to the frames per second (FPS)
+                // defined at the top of the file.
+                update(packet.data, &state);
+            } else if(packet.type == INPUT) {
+                // We received an INPUT packet, meaning we've recieved input from the user.
+                // Depending on the phase of the game, this either means we're:
+                // - Changing direction (when phase is GAME)
+                // - Continuing from the death screen (when phase is DEATH)
+                // - Changing the state->selection (when phase is MENU), OR selecting the current selection
+                state.player_direction = packet.data;
+            }
+        }
     }
 }
 
-static void update(double dt, game_state state) {};
-static void checkCollisions(game_state state) {};
-static void checkState(game_state state) {};
-static void render(game_state state) {};
+static void update(double dt, game_state* state) {};
+static void checkCollisions(game_state* state) {};
+static void checkState(game_state* state) {};
+static void render(game_state* state) {};
 
 /*
  * Called during initialisation to configure GPIO (general purpose input/output) pins to the correct
  * direction (IN/OUT), and attach interrupt callbacks to their action.
- * 
- * TODO: Everything.
  */
-static void configure_gpio() {}
+static void configure_gpio() {
+    // First, configure the direction of the GPIO pins we're using (0 and 35)
+    gpio_set_direction(GPIO_NUM_0, GPIO_MODE_INPUT);
+    gpio_set_direction(GPIO_NUM_35, GPIO_MODE_INPUT);
+
+    // Then, install our ISR service
+    gpio_install_isr_service(ESP_INTR_FLAG_LEVEL1);
+
+    // And attach the handler to the service
+    gpio_isr_handler_add(GPIO_NUM_0, gpio_button_isr_handler, GPIO_NUM_0);
+    gpio_isr_handler_add(GPIO_NUM_35, gpio_button_isr_handler, GPIO_NUM_35);
+}
+
+/*
+ * The ISR handler for the GPIO pins allocated to the physical buttons on the board.
+ * 
+ * This handler is responsible for debouncing and dispatching the button presses
+ * to the game loop via the `packet_queue`
+ */
+static void gpio_button_isr_handler(void* gpio_arg) {
+    // First, debounce the button press. Store the current time now for use
+    static int64_t last_press_time = 0;
+    int64_t current_time = esp_timer_get_time();
+    int gpio_pin = (int)gpio_arg;
+
+    // Used to detect when a button was pressed, and then released.
+    // Starts at both buttons unpressed (0)
+    static int button_status[2] = {1,1};
+
+    // Find whether or not this button is currently pressed down
+    // If pin is 35, comparison will return TRUE (1), otherwise FALSE (0). We can use
+    // these integers to index our static array of button states
+    bool isPressed = button_status[gpio_pin == 35];
+
+    // Time since last change must be more than 500us to continue (debounce)
+    if(current_time - last_press_time > 500) {
+        game_update packet = {.type = INPUT};
+        if(isPressed) {
+            // The button attached to this GPIO pin was just pressed down
+            // Set the direction of movement to the direction this button correlates with
+            packet.data = gpio_pin == 35 ? RIGHT : LEFT;
+        } else {
+            // The button attached to this GPIO pin was just released
+            // Set direction of movement back to NONE
+            packet.data = NONE;
+        }
+
+        xQueueSendFromISR(packet_queue, &packet, 0);
+    }
+
+    // Store the new updated state of the button
+    button_status[gpio_pin == 35] = !isPressed;
+
+    // Refresh the stored static time for debouncing
+    last_press_time = current_time;
+}
 
 /*
  * Runs every tick of the game. Use this oppourtunity to calculate the delta time, and then
- * queue this information in the `tick_queue` for handling by our game.
+ * queue this information in the `packet_queue` for handling by our game.
  * 
  * Generates an update packet with type TICK, and the data being the delta time since last update
  */
@@ -92,10 +179,10 @@ static void game_tick_timer_callback() {
     // Before we dispatch our event, we must first calculate the time that has passed.
     // `last_time` is a static here so it survives repeat invocations. We'll use this to store the current
     // time once we're done. This allows us to use it to compare against the current time now.
-    static uint16_t last_time = 0;
+    static int64_t last_time = 0;
 
     // Calculate the time that has passed since the last time we were here
-    uint16_t dt = esp_timer_get_time() - last_time;
+    int64_t dt = esp_timer_get_time() - last_time;
 
     // Update the last_time static to store the new, current time
     last_time = esp_timer_get_time();
@@ -107,7 +194,7 @@ static void game_tick_timer_callback() {
     };
 
     // Dispatch our update packet to the game loop
-    xQueueSend(tick_queue, &update, 0);
+    xQueueSend(packet_queue, &update, 0);
 }
 
 /*
