@@ -58,6 +58,7 @@ void app_main() {
     // Create and start our game timer
     configure_hw_timer();
 
+    graphics_init();
     start_game();
 }
 
@@ -89,6 +90,7 @@ static void start_game() {
         // This is used so that the high-priority callbacks/ISR functions are free as soon as is possible.
         if(xQueueReceive(packet_queue, &packet, 10) == pdTRUE) {
             printf("Frame: %d - ", frame);
+            printf("Direction: %d - ", state.player_direction);
             printf("Packet type: %d - ", packet.type);
             printf("Packet data: %d \n\n", packet.data);
             if(packet.type == PACKET_TICK) {
@@ -98,17 +100,25 @@ static void start_game() {
                 printf("Advancing frame from %d\n", frame);
                 frame++;
                 update(packet.data, &state);
+
+                cls(rgbToColour(100,20,20));
+                setFont(FONT_DEJAVU18);
+                setFontColour(255, 255, 255);
+
+                char str[10];
                 double fps = frame / (( esp_timer_get_time() - start_time ) / 1.0e6);
-                printf("FPS: %f\n", fps);
-                
+                sprintf(str, "%.1f", fps);
+                print_xy(str, 300, 1);
+                print_xy(str, 1, 1);
+                // printf("FPS: %s\n", str);
+                flip_frame();
             } else if(packet.type == PACKET_INPUT) {
                 // We received an INPUT packet, meaning we've recieved input from the user.
                 // Depending on the phase of the game, this either means we're:
                 // - Changing direction (when phase is GAME)
                 // - Continuing from the death screen (when phase is DEATH)
                 // - Changing the state->selection (when phase is MENU), OR selecting the current selection
-                // state.player_direction = packet.data;
-                printf("DIRECTION CHANGE!");
+                state.player_direction = packet.data;
             }
         }
 
@@ -132,6 +142,10 @@ static void configure_gpio() {
     gpio_set_direction(GPIO_NUM_0, GPIO_MODE_INPUT);
     gpio_set_direction(GPIO_NUM_35, GPIO_MODE_INPUT);
 
+    // Set the interrupt type
+    gpio_set_intr_type(GPIO_NUM_0, GPIO_INTR_LOW_LEVEL);
+    gpio_set_intr_type(GPIO_NUM_35, GPIO_INTR_LOW_LEVEL);
+
     // Then, install our ISR service
     gpio_install_isr_service(ESP_INTR_FLAG_LEVEL1);
 
@@ -146,7 +160,7 @@ static void configure_gpio() {
  * This handler is responsible for debouncing and dispatching the button presses
  * to the game loop via the `packet_queue`
  */
-static void gpio_button_isr_handler(void* gpio_arg) {
+static void IRAM_ATTR gpio_button_isr_handler(void* gpio_arg) {
     // First, debounce the button press. Store the current time now for use
     static int64_t last_press_time = 0;
     int64_t current_time = esp_timer_get_time();
@@ -182,6 +196,11 @@ static void gpio_button_isr_handler(void* gpio_arg) {
 
     // Refresh the stored static time for debouncing
     last_press_time = current_time;
+
+    // Stop the iterrupt being fired again just because we're holding the button
+    // Do this by setting the interrupt type to LOW, if we're currently holding the
+    // button, or HIGH otherwise.
+    gpio_set_intr_type(gpio_pin, isPressed ? GPIO_INTR_LOW_LEVEL : GPIO_INTR_HIGH_LEVEL);
 }
 
 /**
