@@ -20,17 +20,11 @@
 #include <esp_sntp.h>
 
 #include "main.h"
+#include "game.h"
 #include "fonts.h"
 #include "graphics.h"
 
-#define TARGET_FPS 30
-#define MAX_BLOCKS 15
-
-// Velocity is measured per second. The `dt` provided to the game logic will be used
-// to ensure smooth movement even if frames are skipped.
-// This also means that even if the FPS above is adjusted, the game will play at the same speed.
-#define STARTING_VELOCITY 2
-#define MAX_VELOCITY 10
+#define TARGET_FPS 2
 
 // The packet_queue stores any updates we're dispatching to the game loop
 // from outside the loop (a timer callback or GPIO interrupt)
@@ -99,7 +93,6 @@ static void start_game() {
                 // defined at the top of the file.
                 printf("Advancing frame from %d\n", frame);
                 frame++;
-                update(packet.data, &state);
 
                 cls(rgbToColour(100,20,20));
                 setFont(FONT_DEJAVU18);
@@ -110,15 +103,11 @@ static void start_game() {
                 sprintf(str, "%.1f", fps);
                 print_xy(str, 300, 1);
                 print_xy(str, 1, 1);
-                // printf("FPS: %s\n", str);
+
+                handleTickPacket(packet, &state);
                 flip_frame();
             } else if(packet.type == PACKET_INPUT) {
-                // We received an INPUT packet, meaning we've recieved input from the user.
-                // Depending on the phase of the game, this either means we're:
-                // - Changing direction (when phase is GAME)
-                // - Continuing from the death screen (when phase is DEATH)
-                // - Changing the state->selection (when phase is MENU), OR selecting the current selection
-                state.player_direction = packet.data;
+                handleInputPacket(packet, &state);
             }
         }
 
@@ -126,12 +115,8 @@ static void start_game() {
         vTaskDelay(1);
     }
 
-    // vTaskDelete(NULL);
+    vTaskDelete(NULL);
 }
-
-static void update(double dt, game_state* state) {
-    // TODO
-};
 
 /*
  * Called during initialisation to configure GPIO (general purpose input/output) pins to the correct
