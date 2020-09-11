@@ -1,14 +1,26 @@
 #ifndef FALLING_GAME_CORE
 #define FALLING_GAME_CORE
 
+#define TARGET_FPS 30
 #define STARTING_BLOCKS 1
 #define MAX_BLOCKS 20
+#define PLAYER_WIDTH 20
+#define PLAYER_HEIGHT 20
+#define PLAYER_VELOCITY_MULT 2
+#define BLOCK_WIDTH 15
+#define BLOCK_HEIGHT 10
+
+
+// Include the graphics library supplied by Martin Johnson for 159236
+// CAUTION: No include guards provided, must only be included from CORE/when ifndef FALLING_GAME_CORE
+#include "graphics.h"
+#include "fonts.h"
 
 // Velocity is measured per second. The `dt` provided to the game logic will be used
 // to ensure smooth movement even if frames are skipped.
 // This also means that even if the FPS above is adjusted, the game will play at the same speed.
-#define STARTING_VELOCITY 2
-#define MAX_VELOCITY 10
+#define STARTING_VELOCITY 25
+#define MAX_VELOCITY 100
 
 // The type of the game_update packet being dispatched. Tick means a redraw due to the game timer, input means an input from the user on GPIO(0/35)
 typedef enum game_update_type {PACKET_TICK, PACKET_INPUT} game_update_type;
@@ -28,17 +40,21 @@ typedef enum game_state_direction {DIR_LEFT, DIR_RIGHT, DIR_NONE} game_state_dir
 typedef struct game_block {
     int x;
     int y;
-    int width;
-    int height;
+    int enabled;
+    int waiting_for_respawn;
 } game_block;
+
+typedef struct player {
+    int x;
+    int y;
+    int score;
+} player;
 
 // The game state created when the game starts
 typedef struct game_state {
     // General information about the game
     game_state_phase phase;
-    int score;
     int velocity;
-    int block_count;
     int time_passed;
 
     // The movement of the player
@@ -49,7 +65,7 @@ typedef struct game_state {
     
     // The blocks currently in the game
     game_block blocks[MAX_BLOCKS];
-    game_block player;
+    player player;
 
     // Used to automatically return to menu after game over
     int64_t auto_advance_time;

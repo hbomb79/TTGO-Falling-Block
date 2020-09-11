@@ -21,10 +21,46 @@
 
 #include "main.h"
 #include "game.h"
-#include "fonts.h"
-#include "graphics.h"
 
-#define TARGET_FPS 2
+/* Forward declaration of static methods */
+
+/*
+ * This is the main point of the game-loop. It continues to run inifitely, polling for interrupts and
+ * timer callbacks present in the packet_queue.
+ * 
+ * Each time an event is found inside the packet_queue, it's dispatched to the `game_tick` function, which
+ * will handle the update, collisions, scoring and redrawing of the game.
+ */
+static void start_game();
+
+/*
+ * Called during initialisation to configure GPIO (general purpose input/output) pins to the correct
+ * direction (IN/OUT), and attach interrupt callbacks to their action.
+ */
+static void configure_gpio();
+
+/*
+ * The ISR handler for the GPIO pins allocated to the physical buttons on the board.
+ * 
+ * This handler is responsible for debouncing and dispatching the button presses
+ * to the game loop via the `packet_queue`
+ */
+static void gpio_button_isr_handler(void* gpio_arg);
+
+/*
+ * Configures and starts the ESP high-resolution timer, targetting the TARGET_FPS defined above.
+ * 
+ * Runs the `game_tick_timer_callback` method every tick
+ */
+static void configure_hw_timer();
+
+/**
+ * Runs every tick of the game. Use this oppourtunity to calculate the delta time, and then
+ * queue this information in the `packet_queue` for handling by our game.
+ * 
+ * Generates an update packet with type TICK, and the data being the delta time since last update
+ */
+static void game_tick_timer_callback();
 
 // The packet_queue stores any updates we're dispatching to the game loop
 // from outside the loop (a timer callback or GPIO interrupt)
@@ -33,6 +69,7 @@ QueueHandle_t packet_queue;
 // The ESP timer we're using to drive the game loop
 esp_timer_handle_t game_timer;
 
+/* Method definitions */
 
 /*
  * The entry point in to this game; Here we need to configure our GPIO pins, setup
@@ -52,27 +89,21 @@ void app_main() {
     // Create and start our game timer
     configure_hw_timer();
 
+    // Initialise graphics library and start game
     graphics_init();
     start_game();
 }
 
-/*
- * This is the main point of the game-loop. It continues to run inifitely, polling for interrupts and
- * timer callbacks present in the packet_queue.
- * 
- * Each time an event is found inside the packet_queue, it's dispatched to the `game_tick` function, which
- * will handle the update, collisions, scoring and redrawing of the game.
- */
+
 static void start_game() {
+    // Set to portrait
+    set_orientation(1);
+
     // This state struct contains the current state of the game,
     // including the players score, movement and what state of the game
     // we're in (menu, game, game over, etc)
     game_state state = {
         .phase = PHASE_MENU,
-        .score = 0,
-        .time_passed = 0,
-        .player_direction = DIR_NONE,
-        .selection = 0
     };
 
     int frame = 0;
@@ -86,27 +117,22 @@ static void start_game() {
             printf("Frame: %d - ", frame);
             printf("Direction: %d - ", state.player_direction);
             printf("Packet type: %d - ", packet.type);
-            printf("Packet data: %d \n\n", packet.data);
+            printf("Packet data: %d \n", packet.data);
             if(packet.type == PACKET_TICK) {
                 // We received a TICK packet, this means that the game should recalculate logic
                 // and redraw. The ticks should happen according to the frames per second (FPS)
-                // defined at the top of the file.
-                printf("Advancing frame from %d\n", frame);
+                // defined in 'core.h'
+
                 frame++;
-
-                cls(rgbToColour(100,20,20));
-                setFont(FONT_DEJAVU18);
-                setFontColour(255, 255, 255);
-
-                char str[10];
                 double fps = frame / (( esp_timer_get_time() - start_time ) / 1.0e6);
-                sprintf(str, "%.1f", fps);
-                print_xy(str, 300, 1);
-                print_xy(str, 1, 1);
+                printf("FPS: %f @ frame #%d\n\n", fps, frame);
 
+                // Dispatch tick game_update to game logic
                 handleTickPacket(packet, &state);
+                // Flip the frame to display new graphics
                 flip_frame();
             } else if(packet.type == PACKET_INPUT) {
+                // Dispatch input game_update to game logic
                 handleInputPacket(packet, &state);
             }
         }
@@ -115,13 +141,12 @@ static void start_game() {
         vTaskDelay(1);
     }
 
+    // Game loop has ended; this shouldn't ever happen as this code should be unreachable. However, if the loop
+    // is broken due to an exception, then this call will help the OS/microcontroller tidy up our idle task    
     vTaskDelete(NULL);
 }
 
-/*
- * Called during initialisation to configure GPIO (general purpose input/output) pins to the correct
- * direction (IN/OUT), and attach interrupt callbacks to their action.
- */
+
 static void configure_gpio() {
     // First, configure the direction of the GPIO pins we're using (0 and 35)
     gpio_set_direction(GPIO_NUM_0, GPIO_MODE_INPUT);
@@ -139,12 +164,7 @@ static void configure_gpio() {
     gpio_isr_handler_add(GPIO_NUM_35, gpio_button_isr_handler, (void*)GPIO_NUM_35);
 }
 
-/*
- * The ISR handler for the GPIO pins allocated to the physical buttons on the board.
- * 
- * This handler is responsible for debouncing and dispatching the button presses
- * to the game loop via the `packet_queue`
- */
+
 static void IRAM_ATTR gpio_button_isr_handler(void* gpio_arg) {
     // First, debounce the button press. Store the current time now for use
     static int64_t last_press_time = 0;
@@ -158,12 +178,12 @@ static void IRAM_ATTR gpio_button_isr_handler(void* gpio_arg) {
     // Find whether or not this button is currently pressed down
     // If pin is 35, comparison will return TRUE (1), otherwise FALSE (0). We can use
     // these integers to index our static array of button states
-    bool isPressed = button_status[gpio_pin == 35];
+    int isPressed = button_status[gpio_pin == 35];
 
     // Time since last change must be more than 500us to continue (debounce)
     if(current_time - last_press_time > 500) {
         game_update packet = {.type = PACKET_INPUT};
-        if(isPressed) {
+        if(isPressed == 1) {
             // The button attached to this GPIO pin was just pressed down
             // Set the direction of movement to the direction this button correlates with
             packet.data = gpio_pin == 35 ? DIR_RIGHT : DIR_LEFT;
@@ -182,18 +202,11 @@ static void IRAM_ATTR gpio_button_isr_handler(void* gpio_arg) {
     // Refresh the stored static time for debouncing
     last_press_time = current_time;
 
-    // Stop the iterrupt being fired again just because we're holding the button
-    // Do this by setting the interrupt type to LOW, if we're currently holding the
-    // button, or HIGH otherwise.
-    gpio_set_intr_type(gpio_pin, isPressed ? GPIO_INTR_LOW_LEVEL : GPIO_INTR_HIGH_LEVEL);
+    // Stop the iterrupt being fired again just because we're holding the button/helps debounce
+    // by only responding to the opposite type of action that we're currently responding to
+    gpio_set_intr_type(gpio_pin, isPressed ? GPIO_INTR_HIGH_LEVEL : GPIO_INTR_LOW_LEVEL);
 }
 
-/**
- * Runs every tick of the game. Use this oppourtunity to calculate the delta time, and then
- * queue this information in the `packet_queue` for handling by our game.
- * 
- * Generates an update packet with type TICK, and the data being the delta time since last update
- */
 static void game_tick_timer_callback() {
     // Before we dispatch our event, we must first calculate the time that has passed.
     // `last_time` is a static here so it survives repeat invocations. We'll use this to store the current
@@ -216,11 +229,7 @@ static void game_tick_timer_callback() {
     xQueueSend(packet_queue, &update, 0);
 }
 
-/*
- * Configures and starts the ESP high-resolution timer, targetting the TARGET_FPS defined above.
- * 
- * Runs the `game_tick_timer_callback` method every tick
- */
+
 static void configure_hw_timer() {
     // To reduce complexity when handling light-sleep, dynamic frequency, etc.. we're using the high-resoultion
     // timers provided by ESP-IDF, rather than the low-priority timers provided by FreeRTOS.
