@@ -11,63 +11,62 @@
 #define BLOCK_HEIGHT 10
 #define DEATH_SCREEN_DELAY 5.0e6
 
-
-// Include the graphics library supplied by Martin Johnson for 159236
-// CAUTION: No include guards provided, must only be included from CORE/when ifndef FALLING_GAME_CORE
-#include "graphics.h"
-#include "fonts.h"
-
 // Velocity is measured per second. The `dt` provided to the game logic will be used
 // to ensure smooth movement even if frames are skipped.
 // This also means that even if the FPS above is adjusted, the game will play at the same speed.
 #define STARTING_VELOCITY 25
 #define MAX_VELOCITY 100
 
+// Include the graphics library supplied by Martin Johnson for 159236
+// CAUTION: No include guards provided, must only be included from CORE/when ifndef FALLING_GAME_CORE
+#include "graphics.h"
+#include "fonts.h"
+
 // The type of the game_update packet being dispatched. Tick means a redraw due to the game timer, input means an input from the user on GPIO(0/35)
-typedef enum game_update_type {PACKET_TICK, PACKET_INPUT} game_update_type;
+typedef enum GamePacketType {PACKET_TICK, PACKET_INPUT} GamePacketType;
 
 // A game update packet forcing the game to either process user input, or process the game logic and redraw the game
-typedef struct game_update {
-    game_update_type type;
+typedef struct GamePacket {
+    GamePacketType type;
     int data;
-} game_update;
+} GamePacket;
 
 // The current phase of the game
-typedef enum game_state_phase {PHASE_MENU, PHASE_DEATH, PHASE_GAME} game_state_phase;
+typedef enum GameStatePhase {PHASE_MENU, PHASE_DEATH, PHASE_GAME} GameStatePhase;
 
 // The current direction of movement for the player
-typedef enum game_state_direction {DIR_LEFT, DIR_RIGHT, DIR_NONE} game_state_direction;
+typedef enum GameStateDirection {DIR_LEFT, DIR_RIGHT, DIR_NONE} GameStateDirection;
 
-typedef struct game_block {
+typedef struct GameBlock {
     int x;
     int y;
     int enabled;
     int waiting_for_respawn;
-} game_block;
+} GameBlock;
 
-typedef struct player {
+typedef struct Player {
     int x;
     int y;
     int score;
-} player;
+} Player;
 
 // The game state created when the game starts
-typedef struct game_state {
+typedef struct GameState {
     // General information about the game
-    game_state_phase phase;
+    GameStatePhase phase;
     int velocity;
 
     // The movement of the player
-    game_state_direction player_direction;
+    GameStateDirection player_direction;
 
     // The current selection by the player on the main menu (0 = menu, 1 = instructions)
     int selection;
     
     // The blocks currently in the game
-    game_block blocks[MAX_BLOCKS];
-    player player;
+    GameBlock blocks[MAX_BLOCKS];
+    Player player;
 
     // Used to automatically return to menu after game over
     int64_t auto_advance_time;
-} game_state;
+} GameState;
 #endif

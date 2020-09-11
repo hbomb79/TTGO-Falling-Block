@@ -9,7 +9,7 @@
  * to movement the game elements, calculate collisions, and redraw the
  * game world
  */
-void handleTickPacket(game_update packet, game_state* state);
+void handleTickPacket(GamePacket packet, GameState* state);
 
 /*
  * Dispatch an INPUT game update packet, this means the user has provided
@@ -19,6 +19,6 @@ void handleTickPacket(game_update packet, game_state* state);
  * differently. For instance, in game it's used to change direction. On the menu,
  * it will be used to start the game, etc..
  */
-void handleInputPacket(game_update packet, game_state* state);
+void handleInputPacket(GamePacket packet, GameState* state);
 
 #endif

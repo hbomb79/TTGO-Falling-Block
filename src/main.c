@@ -81,7 +81,7 @@ void app_main() {
     // doing all logic inside of high-priority callback functions from the esp_timer.
     // The data passed will be our dT (delta time), which is the amount of time that has
     // passed since the last update tick was dispatched.
-    packet_queue = xQueueCreate(10, sizeof(game_update));
+    packet_queue = xQueueCreate(10, sizeof(GamePacket));
 
     // Configure the direction and interrupts of our GPIO pins
     configure_gpio();
@@ -102,14 +102,14 @@ static void start_game() {
     // This state struct contains the current state of the game,
     // including the players score, movement and what state of the game
     // we're in (menu, game, game over, etc)
-    game_state state = {
+    GameState state = {
         .phase = PHASE_MENU
     };
 
     int frame = 0;
     int64_t start_time = esp_timer_get_time();
     
-    game_update packet;
+    GamePacket packet;
     while(1) {
         // Keep iterating until we find a packet inside our queue.
         // This is used so that the high-priority callbacks/ISR functions are free as soon as is possible.
@@ -180,7 +180,7 @@ static void IRAM_ATTR gpio_button_isr_handler(void* gpio_arg) {
 
     // Time since last change must be more than 500us to continue (debounce)
     if(current_time - last_press_time > 500) {
-        game_update packet = {.type = PACKET_INPUT};
+        GamePacket packet = {.type = PACKET_INPUT};
         if(isPressed == 1) {
             // The button attached to this GPIO pin was just pressed down
             // Set the direction of movement to the direction this button correlates with
@@ -218,7 +218,7 @@ static void game_tick_timer_callback() {
     last_time = esp_timer_get_time();
 
     // Create our game_update packet
-    const game_update update = {
+    const GamePacket update = {
         .type = PACKET_TICK,
         .data = dt
     };
