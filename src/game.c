@@ -272,6 +272,9 @@ static void renderGameScreen(game_state* state) {
     player p = state->player;
     draw_rectangle(p.x, p.y, PLAYER_WIDTH, PLAYER_HEIGHT, rgbToColour(0, 0, 255));
 
+    setFontColour(240,240,240);
+    draw_rectangle(0, 0, display_width, getFontHeight() + 4, rgbToColour(10, 10, 10));
+
     char score[32];
     sprintf(score, "Score: %d", p.score);
     print_xy(score, 1, 2);
