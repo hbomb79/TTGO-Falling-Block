@@ -19,7 +19,7 @@
 #include <esp_log.h>
 #include <esp_sntp.h>
 
-#include "main.h"
+#include "core.h"
 #include "game.h"
 
 /* Forward declaration of static methods */
