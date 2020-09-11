@@ -254,8 +254,16 @@ static void renderMainMenuScreen(game_state* state) {
         draw_rectangle(100, 145, 1, 8, rgbToColour(150,150,150));
         draw_rectangle(105, 155, 1, 12, rgbToColour(150,150,150));
         draw_rectangle(75, 185, 40, 30, rgbToColour(255, 0, 0));
+
+        setFontColour(0,0,0);
+        setFont(FONT_UBUNTU16);
+        print_xy("Press to Start", 10, display_height - getFontHeight());
     } else if(state->selection == 1) {
-        print_xy("Instructions", 1, 1);
+        print_xy("Guide", 1, 1);
+
+        setFontColour(0,0,0);
+        setFont(FONT_UBUNTU16);
+        print_xy("Press to Start", 10, display_height - getFontHeight());
     }
 };
 
