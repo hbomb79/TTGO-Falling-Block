@@ -21,6 +21,4 @@ void handleTickPacket(game_update packet, game_state* state);
  */
 void handleInputPacket(game_update packet, game_state* state);
 
-void initialiseGame(game_state* state);
-
 #endif

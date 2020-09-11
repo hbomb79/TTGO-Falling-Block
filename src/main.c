@@ -103,42 +103,40 @@ static void start_game() {
     // including the players score, movement and what state of the game
     // we're in (menu, game, game over, etc)
     game_state state = {
-        .phase = PHASE_MENU,
+        .phase = PHASE_MENU
     };
 
     int frame = 0;
-    game_update packet;
     int64_t start_time = esp_timer_get_time();
-    // Start the game loop. This will run until the player quits the game.
+    
+    game_update packet;
     while(1) {
         // Keep iterating until we find a packet inside our queue.
         // This is used so that the high-priority callbacks/ISR functions are free as soon as is possible.
-        if(xQueueReceive(packet_queue, &packet, 10) == pdTRUE) {
-            printf("Frame: %d - ", frame);
-            printf("Direction: %d - ", state.player_direction);
-            printf("Packet type: %d - ", packet.type);
-            printf("Packet data: %d \n", packet.data);
+        BaseType_t res = xQueueReceive(packet_queue, &packet, 10);
+        if(res == pdTRUE) {
             if(packet.type == PACKET_TICK) {
-                // We received a TICK packet, this means that the game should recalculate logic
-                // and redraw. The ticks should happen according to the frames per second (FPS)
-                // defined in 'core.h'
-
-                frame++;
-                double fps = frame / (( esp_timer_get_time() - start_time ) / 1.0e6);
-                printf("FPS: %f @ frame #%d\n\n", fps, frame);
-
                 // Dispatch tick game_update to game logic
                 handleTickPacket(packet, &state);
                 // Flip the frame to display new graphics
                 flip_frame();
+
+                // FPS tracking
+                frame++;
+                if(frame % TARGET_FPS == 0) {
+                    double fps = frame / (( esp_timer_get_time() - start_time ) / 1.0e6);
+                    printf("FPS: %f (%d) @ frame #%d\n", fps, TARGET_FPS, frame);
+                }
             } else if(packet.type == PACKET_INPUT) {
                 // Dispatch input game_update to game logic
                 handleInputPacket(packet, &state);
             }
         }
 
-        // Prevent watchdog from terminating due to failure to yield
-        vTaskDelay(1);
+        if(frame % TARGET_FPS || res == pdFALSE) {
+            // Prevent watchdog from terminating due to failure to yield
+            vTaskDelay(1);
+        }
     }
 
     // Game loop has ended; this shouldn't ever happen as this code should be unreachable. However, if the loop

@@ -1,8 +1,11 @@
-#include "game.h"
 #include <esp_timer.h>
 #include <time.h>
-#include <stdlib.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "game.h"
 
 /* Forward declaration of static methods */
 
@@ -86,31 +89,13 @@ static int isPlayerColliding(player p, game_block b);
  */
 static int calculateVelocity(int vel, double dt);
 
+/*
+ * Initialises the game by resetting the game state, player position,
+ * velocity, etc.
+ */
+static void initialiseGame(game_state* state);
+
 /* Method definitions */
-
-void initialiseGame(game_state* state) {
-    // Create the RNG if not already created
-    static int generatorExists = 0;
-    if(!generatorExists) {
-        srand((unsigned int)time(NULL));
-        generatorExists = 1;
-    }
-
-    // Reset the state
-    state->player_direction = DIR_NONE;
-    state->time_passed = 0;
-    state->velocity = STARTING_VELOCITY;
-
-    // Reset the player
-    player* p = &state->player;
-    p->x = (display_width / 2) + PLAYER_WIDTH / 2;
-    p->y = display_height - PLAYER_HEIGHT - 2;
-    p->score = 0;
-
-    // Reset all blocks and re-enable only the required ones
-    initialiseBlocks(state);
-    enableBlocks(state, STARTING_BLOCKS);
-}
 
 void handleTickPacket(game_update packet, game_state* state) {
     // Move blocks, create new ones, advance velocity, move player, et
@@ -122,6 +107,11 @@ void handleTickPacket(game_update packet, game_state* state) {
 }
 
 void handleInputPacket(game_update packet, game_state* state) {
+    // Ignore button presses in first second of runtime as the TTGO
+    // board seems to emit two button presses on GPIO pin 0 without
+    // any user action.
+    if(esp_timer_get_time() < 1e6) return;
+
     int input = packet.data;
     if(state->phase == PHASE_GAME) {
         state->player_direction = input;
@@ -140,13 +130,42 @@ void handleInputPacket(game_update packet, game_state* state) {
                 break;
             case PHASE_DEATH:
                 // On death screen; if user has pressed button then go to menu.
-                state->phase = PHASE_MENU;
+                // Only respond after 500ms incase user hit button trying to avoid
+                // block moments before death.
+                if(esp_timer_get_time() >= state->auto_advance_time - 4.5e6) {
+                    state->phase = PHASE_MENU;
+                }
+
                 break;
             default:
                 printf("[WARNING] Unknown game state phase detected: %d\n", state->phase);
                 break;
         }
     }
+}
+
+static void initialiseGame(game_state* state) {
+    // Create the RNG if not already created
+    static int generatorExists = 0;
+    if(!generatorExists) {
+        srand((unsigned int)time(NULL));
+        generatorExists = 1;
+    }
+
+    // Reset the state
+    state->player_direction = DIR_NONE;
+    state->velocity = STARTING_VELOCITY;
+    state->selection = 0;
+
+    // Reset the player
+    player* p = &state->player;
+    p->x = (display_width / 2) - PLAYER_WIDTH / 2;
+    p->y = display_height - PLAYER_HEIGHT - 5;
+    p->score = 0;
+
+    // Reset all blocks and re-enable only the required ones
+    initialiseBlocks(state);
+    enableBlocks(state, STARTING_BLOCKS);
 }
 
 static int calculateVelocity(int vel, double dt) {
@@ -156,8 +175,7 @@ static int calculateVelocity(int vel, double dt) {
 static void tick(double dt, game_state* state) {
     // If we're on the death screen, check to see if the death screen has been showing
     // for the allocated time already. If so, return to main menu.
-    printf("TICK with dt: %fms and state phase: %d\n", dt, state->phase);
-    if(state->phase == PHASE_DEATH && state->auto_advance_time > esp_timer_get_time()) {
+    if(state->phase == PHASE_DEATH && state->auto_advance_time <= esp_timer_get_time()) {
         state->selection = 0;
         state->phase = PHASE_MENU;
     }
@@ -191,8 +209,9 @@ static void tick(double dt, game_state* state) {
 
         // Increase speed and amount of blocks as the users score rises
         if(p->score > 200) {
-            enableBlocks(state, ((p->score - 200) / 100) + STARTING_BLOCKS);
-            state->velocity = STARTING_VELOCITY + (p->score-200)/400;
+            int score_difference = p->score - 200;
+            enableBlocks(state, (score_difference/200) + STARTING_BLOCKS);
+            state->velocity = STARTING_VELOCITY + score_difference/400;
         }
 
         checkCollisions(state);
@@ -217,11 +236,24 @@ static void render(game_state* state) {
 };
 
 static void renderMainMenuScreen(game_state* state) {
-    cls(rgbToColour(0,255,0));
-    setFont(FONT_DEJAVU18);
+    cls(rgbToColour(190,190,190));
+    setFont(FONT_DEJAVU24);
     setFontColour(255, 255, 255);
     if(state->selection == 0) {
-        print_xy("Falling Block!", display_width / 7, 10);
+        print_xy("Fall", 20, 20);
+        print_xy("i", 66, 26);
+        print_xy("n", 74, 30);
+        print_xy("g", 88, 34);
+        print_xy("Blocks!", 22, 63);
+
+        draw_rectangle(24, 120, 1, 10, rgbToColour(150,150,150));
+        draw_rectangle(54, 105, 1, 12, rgbToColour(150,150,150));
+        draw_rectangle(20, 135, 40, 30, rgbToColour(255, 0, 0));
+
+        draw_rectangle(82, 155, 1, 15, rgbToColour(150,150,150));
+        draw_rectangle(100, 145, 1, 8, rgbToColour(150,150,150));
+        draw_rectangle(105, 155, 1, 12, rgbToColour(150,150,150));
+        draw_rectangle(75, 185, 40, 30, rgbToColour(255, 0, 0));
     } else if(state->selection == 1) {
         print_xy("Instructions", 1, 1);
     }
@@ -239,10 +271,34 @@ static void renderGameScreen(game_state* state) {
 
     player p = state->player;
     draw_rectangle(p.x, p.y, PLAYER_WIDTH, PLAYER_HEIGHT, rgbToColour(0, 0, 255));
+
+    char score[32];
+    sprintf(score, "Score: %d", p.score);
+    print_xy(score, 1, 2);
 };
 
 static void renderDeathScreen(game_state* state) {
-    cls(rgbToColour(255,0,0));
+    cls(rgbToColour(190,190,190));
+    setFontColour(255, 0, 0);
+    setFont(FONT_DEJAVU18);
+    print_xy("Game over", 1, 20);
+
+    setFont(FONT_UBUNTU16);
+    setFontColour(255, 255, 255);
+    char score[32];
+    sprintf(score, "Score: %04d", state->player.score);
+    print_xy(score, 1, 45);
+
+    int64_t current_time = esp_timer_get_time();
+    int64_t target_time = state->auto_advance_time;
+    double perc_time_remaining = 1 - (abs(target_time - current_time) / DEATH_SCREEN_DELAY);
+
+    setFontColour(0,0,0);
+    setFont(FONT_SMALL);
+
+    int bar_height = getFontHeight() * 2;
+    draw_rectangle(0, display_height - bar_height, display_width * perc_time_remaining, bar_height, rgbToColour(255, 255, 255));
+    print_xy("Press to Continue", 10, display_height - getFontHeight()*1.5);
 };
 
 static void checkCollisions(game_state* state) {
@@ -252,6 +308,7 @@ static void checkCollisions(game_state* state) {
         if(block->enabled && block->waiting_for_respawn == 0) {
             if(isPlayerColliding(*p, *block) == 1) {
                 state->phase = PHASE_DEATH;
+                state->auto_advance_time = esp_timer_get_time() + DEATH_SCREEN_DELAY;
             } else if(block->y > display_height) {
                 block->waiting_for_respawn = 1;
                 p->score += 100;
@@ -291,7 +348,7 @@ static void respawnBlock(game_block* block) {
     static game_block* last_spawned;
 
     // Find a space for this block to spawn
-    if(last_spawned == NULL || last_spawned->y > BLOCK_HEIGHT*1.5) {
+    if(last_spawned == NULL || last_spawned->enabled == 0 || last_spawned->waiting_for_respawn == 1 || last_spawned->y > BLOCK_HEIGHT*1.5) {
         // We can just spawn anywhere
         block->y = BLOCK_HEIGHT * -1;
         block->x = rand() % (display_width - BLOCK_WIDTH);

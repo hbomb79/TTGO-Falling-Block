@@ -9,6 +9,7 @@
 #define PLAYER_VELOCITY_MULT 2
 #define BLOCK_WIDTH 15
 #define BLOCK_HEIGHT 10
+#define DEATH_SCREEN_DELAY 5.0e6
 
 
 // Include the graphics library supplied by Martin Johnson for 159236
@@ -55,7 +56,6 @@ typedef struct game_state {
     // General information about the game
     game_state_phase phase;
     int velocity;
-    int time_passed;
 
     // The movement of the player
     game_state_direction player_direction;
