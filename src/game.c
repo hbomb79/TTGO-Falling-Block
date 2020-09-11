@@ -43,7 +43,7 @@ static void renderDeathScreen(game_state* state);
 /*
  * When a block falls off the screen, we move it back up to the top to
  * provide the illusion of a new block.
- * 
+ *
  * In reality, removing and recreating a block is a waste of time and memory
  * if we can just change the Y value instead.
  */
@@ -57,7 +57,7 @@ static void initialiseBlocks(game_state* state);
 /*
  * Enables the blocks that are currently spawned and waiting to be deployed
  * from the top of the screen.
- * 
+ *
  * Only blocks in the game state block array (state->blocks) up to the index
  * provided are enabled; this integer is derived from the current players score
  * and is increased as the difficulty is increased in response the players increasing
@@ -66,13 +66,52 @@ static void initialiseBlocks(game_state* state);
 static void enableBlocks(game_state* state, int toBlockIndex);
 
 /*
+ * Draws the rectangle representing the block using the colour provided.
+ *
+ * If the X/Y position of the block is less than zero, the width/height
+ * is reduced and the appropiatte X/Y value is set to zero to prevent
+ * the underlying graphics method from crashing.
+ */
+static void drawBlock(game_block b, uint16_t colour);
+
+/*
  * Checks if the player provided is colliding with the block provided.
- * 
+ *
  * Returns 1 if they are colliding, 0 otherwise.
  */
 static int isPlayerColliding(player p, game_block b);
 
+/*
+ * Uses the dt provided (in ms) to calculate the velocity.
+ */
+static int calculateVelocity(int vel, double dt);
+
 /* Method definitions */
+
+void initialiseGame(game_state* state) {
+    // Create the RNG if not already created
+    static int generatorExists = 0;
+    if(!generatorExists) {
+        srand((unsigned int)time(NULL));
+        generatorExists = 1;
+    }
+
+    // Reset the state
+    state->player_direction = DIR_NONE;
+    state->time_passed = 0;
+    state->velocity = STARTING_VELOCITY;
+
+    // Reset the player
+    player* p = &state->player;
+    p->x = (display_width / 2) + PLAYER_WIDTH / 2;
+    p->y = display_height - PLAYER_HEIGHT - 2;
+    p->score = 0;
+
+    // Reset all blocks and re-enable only the required ones
+    initialiseBlocks(state);
+    enableBlocks(state, STARTING_BLOCKS);
+}
+
 void handleTickPacket(game_update packet, game_state* state) {
     // Move blocks, create new ones, advance velocity, move player, et
     // Change the delta time from the tick packet to ms, as microseconds is a bit overkill
@@ -93,8 +132,9 @@ void handleInputPacket(game_update packet, game_state* state) {
                 state->selection++;
                 if(state->selection > 1) {
                     state->selection = 0;
-                    initialiseGame(state);
                     state->phase = PHASE_GAME;
+
+                    initialiseGame(state);
                 }
 
                 break;
@@ -109,32 +149,7 @@ void handleInputPacket(game_update packet, game_state* state) {
     }
 }
 
-void initialiseGame(game_state* state) {
-    static int generatorExists = 0;
-    if(!generatorExists) {
-        srand((unsigned int)time(NULL));
-        generatorExists = 1;
-    }
-
-    state->player_direction = DIR_NONE;
-    state->time_passed = 0;
-    state->velocity = STARTING_VELOCITY;
-
-    player* p = &state->player;
-    p->x = (display_width / 2) + PLAYER_WIDTH / 2;
-    p->y = display_height - PLAYER_HEIGHT - 2;
-    p->score = 0;
-
-    initialiseBlocks(state);
-    enableBlocks(state, STARTING_BLOCKS);
-}
-
 static int calculateVelocity(int vel, double dt) {
-    // Velocity is calculated based on movement per SECOND.
-    // However, if each frame is of varying duration/delay, we
-    // should take that in to account when moving entities.
-    // Here, the velocity value is returned as a fraction of the dt; if dt is one second,
-    // then the velocity is returned as is.
     return ceil(vel * (dt/1000));
 }
 
@@ -168,14 +183,13 @@ static void tick(double dt, game_state* state) {
         for(int i = 0; i < MAX_BLOCKS; i++) {
             block = &state->blocks[i];
             if(block->enabled) {
-                if(block->waiting_for_respawn) {
-                    respawnBlock(block);
-                }
+                if(block->waiting_for_respawn) { respawnBlock(block); }
 
                 block->y += calculateVelocity(state->velocity, dt);
             };
         };
 
+        // Increase speed and amount of blocks as the users score rises
         if(p->score > 200) {
             enableBlocks(state, ((p->score - 200) / 100) + STARTING_BLOCKS);
             state->velocity = STARTING_VELOCITY + (p->score-200)/400;
@@ -202,7 +216,6 @@ static void render(game_state* state) {
     }
 };
 
-
 static void renderMainMenuScreen(game_state* state) {
     cls(rgbToColour(0,255,0));
     setFont(FONT_DEJAVU18);
@@ -210,20 +223,9 @@ static void renderMainMenuScreen(game_state* state) {
     if(state->selection == 0) {
         print_xy("Falling Block!", display_width / 7, 10);
     } else if(state->selection == 1) {
-        print_xy("instructions", 1, 1);
+        print_xy("Instructions", 1, 1);
     }
 };
-
-static void drawBlock(game_block b, uint16_t colour) {
-    int x = b.x < 0 ? 0 : b.x;
-    int y = b.y < 0 ? 0 : b.y;
-    int width = b.x < 0 ? BLOCK_WIDTH + b.x : BLOCK_WIDTH;
-    int height = b.y < 0 ? BLOCK_HEIGHT + b.y : BLOCK_HEIGHT;
-
-    if(width <= 0 || height <= 0) {return;}
-
-    draw_rectangle(x, y, width, height, colour);
-}
 
 static void renderGameScreen(game_state* state) {
     cls(rgbToColour(0,0,0));
@@ -258,8 +260,11 @@ static void checkCollisions(game_state* state) {
     }
 };
 
+static int isPlayerColliding(player p, game_block b) {
+    return !(p.x > b.x + BLOCK_WIDTH || p.x + PLAYER_WIDTH < b.x || p.y > b.y + BLOCK_HEIGHT || p.y + PLAYER_HEIGHT < b.y);
+}
+
 static void enableBlocks(game_state* state, int toBlockIndex) {
-    printf("Enabling blocks 0-%d\n", toBlockIndex);
     for(int i = 0; i < MAX_BLOCKS; i++) {
         int enabled = i < toBlockIndex;
         game_block* b = &state->blocks[i];
@@ -279,7 +284,6 @@ static void initialiseBlocks(game_state* state) {
 }
 
 static void respawnBlock(game_block* block) {
-    printf("Attempting to respawn block!\n");
     if(block->enabled == 0) return;
 
     // The last block we spawned. Used as a quick and dirty test to determine
@@ -294,30 +298,17 @@ static void respawnBlock(game_block* block) {
         block->waiting_for_respawn = 0;
 
         last_spawned = block;
-    } else {
-        // // There is a spawned block and it's close to the top of the screen.
-        // // Either try and spawn a block adjacent to it, otherwise abort and
-        // // we can retry on the next game tick
-
-        // // Generate a random number; if even spawn on left of new block if possible
-        // // If odd, spawn on right
-        // int spawnSide = ( rand() % 2 );
-        // if(spawnSide == 0 && last_spawned->x - BLOCK_WIDTH > 2) {
-        //     block->x = 1;
-        // } else if(spawnSide == 1 && last_spawned->x+(BLOCK_WIDTH*2) < display_width - 2) {
-        //     block->x = last_spawned->x+(BLOCK_WIDTH*2) + 1;
-        // } else {
-        //     // Failed to spawn, no free space
-        //     return;
-        // };
-
-        // block->y = BLOCK_HEIGHT * -1;
-        // block->waiting_for_respawn = 0;
-        // last_spawned = block;
     }
 };
 
-static int isPlayerColliding(player p, game_block b) {
-    return !(p.x > b.x + BLOCK_WIDTH || p.x + PLAYER_WIDTH < b.x || p.y > b.y + BLOCK_HEIGHT || p.y + PLAYER_HEIGHT < b.y);
+static void drawBlock(game_block b, uint16_t colour) {
+    int x = b.x < 0 ? 0 : b.x;
+    int y = b.y < 0 ? 0 : b.y;
+    int width = b.x < 0 ? BLOCK_WIDTH + b.x : BLOCK_WIDTH;
+    int height = b.y < 0 ? BLOCK_HEIGHT + b.y : BLOCK_HEIGHT;
+
+    if(width <= 0 || height <= 0) {return;}
+
+    draw_rectangle(x, y, width, height, colour);
 }
 
