@@ -210,8 +210,8 @@ static void tick(double dt, GameState* state) {
         // Increase speed and amount of blocks as the users score rises
         if(p->score > 200) {
             int score_difference = p->score - 200;
-            enable_blocks(state, (score_difference/200) + STARTING_BLOCKS);
-            state->velocity = STARTING_VELOCITY + score_difference/400;
+            enable_blocks(state, (score_difference/300) + STARTING_BLOCKS);
+            state->velocity = STARTING_VELOCITY + (score_difference/400)*0.5;
         }
 
         check_collisions(state);
@@ -259,7 +259,22 @@ static void render_main_menu(GameState* state) {
         setFont(FONT_UBUNTU16);
         print_xy("Press to Start", 10, display_height - getFontHeight());
     } else if(state->selection == 1) {
+        setFont(FONT_DEJAVU24);
+        setFontColour(100, 100, 100);
         print_xy("Guide", 1, 1);
+
+        setFontColour(255, 255, 255);
+        setFont(FONT_DEJAVU18);
+        print_xy("Dodge the", 1, 45);
+        setFontColour(255, 0, 0);
+        print_xy("falling blocks", 1, 65);
+        setFontColour(255, 255, 255);
+        print_xy("using the left", 1, 85);
+        print_xy("and right", 1, 105);
+        print_xy("buttons!", 1, 125);
+
+        setFontColour(0,0,255);
+        print_xy("Good Luck!", 10, 165);
 
         setFontColour(0,0,0);
         setFont(FONT_UBUNTU16);
@@ -358,9 +373,7 @@ static void respawn_block(GameBlock* block) {
     // if we need to poll for blocks close to the top of the screen or not
     static GameBlock* last_spawned;
 
-    // Find a space for this block to spawn
     if(last_spawned == NULL || last_spawned->enabled == 0 || last_spawned->waiting_for_respawn == 1 || last_spawned->y > BLOCK_HEIGHT*1.5) {
-        // We can just spawn anywhere
         block->y = BLOCK_HEIGHT * -1;
         block->x = rand() % (display_width - BLOCK_WIDTH);
         block->waiting_for_respawn = 0;

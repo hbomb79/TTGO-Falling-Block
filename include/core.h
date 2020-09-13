@@ -1,14 +1,32 @@
 #ifndef FALLING_GAME_CORE
 #define FALLING_GAME_CORE
 
+// The FPS (frames per second) the game will try to run at
 #define TARGET_FPS 30
-#define STARTING_BLOCKS 1
-#define MAX_BLOCKS 20
+
+// The amount of blocks first spawned when the user starts the game.
+#define STARTING_BLOCKS 3
+
+// The maximum amount of blocks that can ever exist at once
+#define MAX_BLOCKS 15
+
+// The width of the players block
 #define PLAYER_WIDTH 20
+
+// The height of the players block
 #define PLAYER_HEIGHT 20
+
+// A multiplier to the current game velocity which allows the player to move
+// at a different speed to the blocks
 #define PLAYER_VELOCITY_MULT 2
+
+// The width of each falling block
 #define BLOCK_WIDTH 15
+
+// The head of each falling block
 #define BLOCK_HEIGHT 10
+
+// The amount of time (us) before the game over screen returns to the main menu
 #define DEATH_SCREEN_DELAY 5.0e6
 
 // Velocity is measured per second. The `dt` provided to the game logic will be used
